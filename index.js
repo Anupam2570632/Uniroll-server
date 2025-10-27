@@ -12,7 +12,8 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-const uri = "mongodb://localhost:27017/";
+const uri =
+  "mongodb+srv://unirollAdmin:nVqcmwN5Qlk2XVjE@cluster0.oeipnk8.mongodb.net/";
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -218,7 +219,7 @@ async function run() {
       const courseId = req.params.id;
 
       try {
-        await registrationCollection.updateMany(
+        await registrationsCollection.updateMany(
           {},
           { $pull: { courses: { _id: courseId } } }
         );
@@ -232,6 +233,7 @@ async function run() {
       }
     });
 
+    //add Registration api
     app.post("/registrations", async (req, res) => {
       try {
         const { student_id, courses, total_credit, semester } = req.body;
@@ -289,6 +291,20 @@ async function run() {
       } catch (err) {
         console.error(err);
         res.status(500).send("Error adding department");
+      }
+    });
+    // GET all departments
+    app.get("/departments", async (req, res) => {
+      try {
+        const departments = await departmentsCollection
+          .find({}, { projection: { _id: 0, name: 1 } })
+          .toArray();
+
+        const deptNames = departments.map((d) => d.name);
+        res.status(200).json({ departments: deptNames });
+      } catch (error) {
+        console.error("Error fetching departments:", error);
+        res.status(500).json({ message: "Internal server error" });
       }
     });
 
@@ -471,6 +487,83 @@ async function run() {
         res.status(200).json({ message: "Advisor assigned successfully" });
       } catch (error) {
         console.error(error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // GET student profile info
+    app.get("/studentProfile/:studentId", async (req, res) => {
+      try {
+        const studentId = req.params.studentId;
+
+        const student = await studentsCollection.findOne(
+          { studentId },
+          { projection: { password: 0 } }
+        );
+        if (!student) {
+          return res.status(404).json({ message: "Student not found" });
+        }
+
+        const registration = await registrationsCollection.findOne({
+          student_id: studentId,
+        });
+
+        if (!registration) {
+          return res.status(200).json({
+            student,
+            registration: null,
+            timetable: [],
+            message: "No registration found",
+          });
+        }
+
+        const courses = await coursesCollection
+          .find({ _id: { $in: registration.courses } })
+          .toArray();
+
+        const timetable = courses.map((c, i) => ({
+          day: ["Sun", "Mon", "Tue", "Wed", "Thu"][i % 5],
+          course: c.name,
+          time: `${10 + i}:00 - ${11 + i}:00 AM`,
+        }));
+
+        res.status(200).json({
+          student,
+          registration,
+          timetable,
+        });
+      } catch (error) {
+        console.error("Error fetching student profile:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // GET: Admin Stats Overview
+    app.get("/admin/stats", async (req, res) => {
+      try {
+        const [
+          studentsCount,
+          coursesCount,
+          deptCount,
+          advisorCount,
+          registrationCount,
+        ] = await Promise.all([
+          studentsCollection.countDocuments(),
+          coursesCollection.countDocuments(),
+          departmentsCollection.countDocuments(),
+          advisorsCollection.countDocuments(),
+          registrationsCollection.countDocuments(),
+        ]);
+
+        res.status(200).json({
+          students: studentsCount,
+          courses: coursesCount,
+          departments: deptCount,
+          advisors: advisorCount,
+          registrations: registrationCount,
+        });
+      } catch (error) {
+        console.error("Error fetching admin stats:", error);
         res.status(500).json({ message: "Internal server error" });
       }
     });
