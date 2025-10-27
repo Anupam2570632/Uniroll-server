@@ -6,7 +6,11 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "https://uniroll-reg-system.netlify.app"],
+  })
+);
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
@@ -244,6 +248,7 @@ async function run() {
           });
         }
 
+        // Check if student already registered for this semester
         const existing = await registrationsCollection.findOne({
           student_id,
           semester,
@@ -255,6 +260,7 @@ async function run() {
             .json({ message: "Already registered for this semester" });
         }
 
+        // Create new registration
         const registration = {
           student_id,
           semester,
@@ -265,6 +271,12 @@ async function run() {
         };
 
         const result = await registrationsCollection.insertOne(registration);
+
+        // ✅ Update student's current semester in studentsCollection
+        await studentsCollection.updateOne(
+          { studentId: student_id },
+          { $set: { currentSemester: semester } }
+        );
 
         res.status(201).json({
           success: true,
@@ -391,8 +403,15 @@ async function run() {
     //get all students api
     app.get("/students", async (req, res) => {
       try {
+        const { dept_name, semester } = req.query;
+
+        // Build dynamic filter
+        const filter = {};
+        if (dept_name) filter.dept_name = dept_name;
+        if (semester) filter.semester = semester;
+
         const students = await studentsCollection
-          .find({}, { projection: { password: 0 } })
+          .find(filter, { projection: { password: 0 } })
           .sort({ studentId: 1 })
           .toArray();
 
@@ -496,14 +515,17 @@ async function run() {
       try {
         const studentId = req.params.studentId;
 
+        // Find the student (excluding password)
         const student = await studentsCollection.findOne(
           { studentId },
           { projection: { password: 0 } }
         );
+
         if (!student) {
           return res.status(404).json({ message: "Student not found" });
         }
 
+        // Find the student's registration
         const registration = await registrationsCollection.findOne({
           student_id: studentId,
         });
@@ -512,24 +534,35 @@ async function run() {
           return res.status(200).json({
             student,
             registration: null,
+            regCourse: [],
             timetable: [],
             message: "No registration found",
           });
         }
 
+        // Fetch course details
         const courses = await coursesCollection
           .find({ _id: { $in: registration.courses } })
           .toArray();
 
+        // Create timetable dynamically
         const timetable = courses.map((c, i) => ({
           day: ["Sun", "Mon", "Tue", "Wed", "Thu"][i % 5],
           course: c.name,
           time: `${10 + i}:00 - ${11 + i}:00 AM`,
         }));
 
+        // ✅ Create regCourse array (courseId + name)
+        const regCourse = courses.map((c) => ({
+          courseId: c._id,
+          name: c.name,
+        }));
+
+        // Send full response
         res.status(200).json({
           student,
           registration,
+          regCourse,
           timetable,
         });
       } catch (error) {
