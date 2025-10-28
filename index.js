@@ -305,6 +305,7 @@ async function run() {
         res.status(500).send("Error adding department");
       }
     });
+
     // GET all departments
     app.get("/departments", async (req, res) => {
       try {
@@ -317,6 +318,40 @@ async function run() {
       } catch (error) {
         console.error("Error fetching departments:", error);
         res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // UPDATE department by old name
+    app.put("/departments", async (req, res) => {
+      try {
+        const { oldName, newName } = req.body;
+
+        // Update department name
+        const updatedDept = await departmentsCollection.findOneAndUpdate(
+          { name: oldName },
+          { $set: { name: newName } },
+        );
+
+        if (!updatedDept) {
+          return res.status(404).json({ message: "Department not found" });
+        }
+
+        // Also update related students (if any)
+        const result = await studentsCollection.updateMany(
+          { dept_name: oldName },
+          { $set: { dept_name: newName } }
+        );
+
+        console.log(`${result.modifiedCount} students updated`);
+
+        res.json({
+          message: "Department and related students updated successfully",
+          updatedDept: updatedDept.value,
+          studentsUpdated: result.modifiedCount,
+        });
+      } catch (error) {
+        console.error("Error updating department:", error);
+        res.status(500).json({ message: "Error updating department" });
       }
     });
 
@@ -552,7 +587,7 @@ async function run() {
           time: `${10 + i}:00 - ${11 + i}:00 AM`,
         }));
 
-        // ✅ Create regCourse array (courseId + name)
+        // Create regCourse array (courseId + name)
         const regCourse = courses.map((c) => ({
           courseId: c._id,
           name: c.name,
